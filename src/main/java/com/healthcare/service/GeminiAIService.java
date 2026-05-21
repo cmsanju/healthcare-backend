@@ -18,13 +18,22 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 @Slf4j
 public class GeminiAIService {
-
+/*
     @Value("${gemini.api.url}")
     private String geminiApiUrl;
 
     @Value("${gemini.api.key}")
     private String geminiApiKey;
+*/
+    @Value("${groq.api.url}")
+	private String groqBaseUrl;
 
+	@Value("${groq.api.key}")
+	private String groqApiKey;
+
+	@Value("${groq.model}")
+	private String groqModel;
+    
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -36,7 +45,7 @@ public class GeminiAIService {
     public String generateContent(String prompt) {
         return generateContent(prompt, null);
     }
-
+/*
     public String generateContent(String prompt, List<Map<String, String>> conversationHistory) {
         try {
             ObjectNode requestBody = objectMapper.createObjectNode();
@@ -128,7 +137,266 @@ public class GeminiAIService {
             return "I'm sorry, I encountered an error: " + e.getMessage();
         }
     }
+*/
+    public String generateContent(String prompt, List<Map<String, String>> conversationHistory) {
 
+		try {
+
+			ObjectNode requestBody = objectMapper.createObjectNode();
+
+			requestBody.put("model", groqModel);
+
+			requestBody.put("temperature", 0.7);
+
+			requestBody.put("max_tokens", 4096);
+
+			ArrayNode messages = requestBody.putArray("messages");
+
+			// System Prompt
+
+			ObjectNode system = messages.addObject();
+
+			system.put("role", "system");
+
+			system.put("content", buildSystemPrompt());
+
+			// Conversation History
+
+			if (conversationHistory != null) {
+
+				for (Map<String, String> msg : conversationHistory) {
+
+					ObjectNode message = messages.addObject();
+
+					message.put(
+
+							"role",
+
+							"USER".equals(
+
+									msg.get("role")
+
+							)
+
+									?
+
+									"user"
+
+									:
+
+									"assistant"
+
+					);
+
+					message.put(
+
+							"content",
+
+							msg.get("content")
+
+					);
+
+				}
+
+			}
+
+			// Current User Prompt
+
+			ObjectNode user = messages.addObject();
+
+			user.put(
+
+					"role",
+
+					"user"
+
+			);
+
+			user.put(
+
+					"content",
+
+					prompt
+
+			);
+
+			RequestBody body =
+
+					RequestBody.create(
+
+							objectMapper.writeValueAsString(requestBody),
+
+							MediaType.parse("application/json")
+
+					);
+
+			Request request =
+
+					new Request.Builder()
+
+							.url(
+
+									groqBaseUrl
+
+											+
+
+											"/chat/completions"
+
+							)
+
+							.post(body)
+
+							.addHeader(
+
+									"Authorization",
+
+									"Bearer "
+
+											+
+
+											groqApiKey
+
+							)
+
+							.addHeader(
+
+									"Content-Type",
+
+									"application/json"
+
+							)
+
+							.build();
+
+			try (
+
+					Response response =
+
+							httpClient
+
+									.newCall(request)
+
+									.execute()
+
+			) {
+
+				if (
+
+				!response.isSuccessful()
+
+				) {
+
+					String error =
+
+							response.body() != null
+
+									?
+
+									response.body().string()
+
+									:
+
+									"Unknown";
+
+					log.error(
+
+							"Groq Error {} {}",
+
+							response.code(),
+
+							error
+
+					);
+
+					return
+
+					"Groq API Error: "
+
+							+
+
+							response.code();
+
+				}
+
+				String responseBody =
+
+						response.body()
+
+								.string();
+
+				JsonNode json =
+
+						objectMapper.readTree(
+
+								responseBody
+
+						);
+
+				JsonNode choices =
+
+						json.get(
+
+								"choices"
+
+						);
+
+				if (
+
+				choices != null
+
+						&&
+
+						choices.isArray()
+
+						&&
+
+						choices.size() > 0
+
+				) {
+
+					return
+
+					choices
+
+							.get(0)
+
+							.get("message")
+
+							.get("content")
+
+							.asText();
+
+				}
+
+				return
+
+				"No response generated";
+
+			}
+
+		}
+
+		catch (Exception e) {
+
+			log.error(
+
+					"Groq Error",
+
+					e
+
+			);
+
+			return
+
+			"Error: "
+
+					+
+
+					e.getMessage();
+
+		}
+
+	}
     public String analyzeDocument(String documentText, String documentType) {
         String prompt = String.format("""
             You are an expert medical AI analyst. Analyze the following %s document and provide:
